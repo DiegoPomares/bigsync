@@ -1,47 +1,46 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"os"
-	"flag"
 	"runtime"
-	"strings"
 	"strconv"
-	"errors"
+	"strings"
 )
 
 const (
-	NAME = "bigsync"
-	VERSION = "0.1 beta"
-	URL = "https://github.com/DiegoPomares/bigsync"
+	NAME    = "bigsync"
+	VERSION = "0.1 alpha"
+	URL     = "https://github.com/DiegoPomares/bigsync"
 )
 
 var Verbose bool
 
 var Options struct {
 	SourceFile string
-	User string
+	User       string
 	RemoteHost string
-	DestFile string
+	DestFile   string
 
 	ServerMode string
 
-	BlockSize int
-	Workers int
-	HashAlgorithm string
+	BlockSize     int
+	Workers       int
+	HashType      string
 	ForceCreation bool
 
-	Gzip bool
+	Gzip     bool
 	ExtraSsh string
-	
-	Diff bool
+
+	Diff  bool
 	Equal bool
 }
 
 var DefaultBlockSize = (1024 * 1024)
 var DefaultWorkers = 16 * runtime.NumCPU()
-var DefaultHashAlgorithm = "SHA256"
-
+var DefaultHashType = "SHA256"
 
 var usage = fmt.Sprintf(`%s %s (%s)
 Usage: %s [options] source_file [ [[user@]remote_host] [dest_file] ]
@@ -50,9 +49,8 @@ Common:
     -b, --block-size <bytes>        Read and write up to <bytes> at a time.
                                     Supports multiplicative suffixes KMG
                                     (default: 1M = 1024*1024)
-    -w, --workers <number>          Number of hashing workers (default: ` + strconv.Itoa(DefaultWorkers) + `)
-    -a, --algoritm <algoritm>       Hashing algoritm (default: ` + DefaultHashAlgorithm + `), use -l
-                                    Available: MD5, SHA1, SHA256, SHA512
+    -w, --workers <number>          Number of hashing workers (default: `+strconv.Itoa(DefaultWorkers)+`)
+    -t, --hash-type <algoritm>      Available: MD5, SHA1, SHA256, SHA512 (default: `+DefaultHashType+`)
     -f, --force-creation            Create the file on the remote_host if it
                                     doesn't exist already
 
@@ -69,7 +67,7 @@ Miscellaneous:
     -h, --help                      Show this message
 
 See the %s manpage for full options, descriptions and usage examples
-`, NAME, VERSION, URL, NAME, NAME + "(1)")
+`, NAME, VERSION, URL, NAME, NAME+"(1)")
 
 func print_usage() {
 	fmt.Printf("%s", usage)
@@ -92,8 +90,8 @@ func Process_opts() error {
 	flag.StringVar(&block_size_human, "block-size", "", "Block size")
 	flag.IntVar(&Options.Workers, "w", 0, "Workers")
 	flag.IntVar(&Options.Workers, "workers", 0, "Workers")
-	flag.StringVar(&Options.HashAlgorithm, "a", "", "Hash algoritm")
-	flag.StringVar(&Options.HashAlgorithm, "algoritm", "", "Hash algoritm")
+	flag.StringVar(&Options.HashType, "t", "", "Hash type")
+	flag.StringVar(&Options.HashType, "hash-type", "", "Hash type")
 	flag.BoolVar(&Options.ForceCreation, "f", false, "Force creation")
 	flag.BoolVar(&Options.ForceCreation, "force-creation", false, "Force creation")
 
@@ -114,7 +112,6 @@ func Process_opts() error {
 
 	flag.Usage = print_usage
 	flag.Parse()
-
 
 	// Positional arguments
 	Options.SourceFile = arg_get(flag.Args(), 0)
@@ -149,16 +146,14 @@ func Process_opts() error {
 	if Options.Workers == 0 {
 		Options.Workers = runtime.NumCPU() * DefaultWorkers
 	}
-	if Options.HashAlgorithm == "" {
-		Options.HashAlgorithm = DefaultHashAlgorithm
+	if Options.HashType == "" {
+		Options.HashType = DefaultHashType
 	} else {
-		Options.HashAlgorithm = strings.ToUpper(Options.HashAlgorithm)
+		Options.HashType = strings.ToUpper(Options.HashType)
 	}
 
-
-return nil
+	return nil
 }
-
 
 func parse_num(s string) (int, error) {
 	multi := 1
@@ -168,11 +163,11 @@ func parse_num(s string) (int, error) {
 	case "K":
 		multi = 1024
 	case "M":
-		multi = 1024*1024
+		multi = 1024 * 1024
 	case "G":
-		multi = 1024*1024*1024
+		multi = 1024 * 1024 * 1024
 	case "T":
-		multi = 1024*1024*1024*1024
+		multi = 1024 * 1024 * 1024 * 1024
 	default:
 		s = s + " "
 	}

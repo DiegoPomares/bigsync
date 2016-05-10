@@ -3,14 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
+	//"time"
 	"io"
-	"math"
-	"strconv"
+	//"strconv"
+	"github.com/DiegoPomares/bigsync/hasher"
 	u "github.com/DiegoPomares/bigsync/utils"
 )
 
 var sigINT = false
+
 func AppSignal(sig os.Signal) {
 	if !sigINT && sig == os.Interrupt {
 		u.Stderrln("[ Interrupt received, cleaning up ... ]")
@@ -23,56 +24,53 @@ func App() error {
 
 	if Options.ServerMode == "" {
 
-		// Open source file
-		source_file, err := os.OpenFile(Options.SourceFile, os.O_RDONLY, 0)
+		//TODO open file here
+		fh, err := hasher.New(Options.SourceFile, "r", Options.BlockSize, Options.HashType, Options.Workers)
 		if u.Iserror(err) {
 			return err
 		}
-		defer source_file.Close()
-
-		file_info, err := source_file.Stat()
-		if u.Iserror(err) {
-			return err
-		}
-		file_size := file_info.Size()
-		num_blocks := int(math.Ceil(float64(file_size)/float64(Options.BlockSize)))
 
 		if Verbose {
-			u.Stderrln("File size", file_size, "| Blocks", num_blocks)
+			u.Stderrln("File size", fh.FileSize, "| Blocks", fh.NumBlocks)
 		}
-
-		// Queues
-		jobs := make(chan Block)
-		results := make(chan Block)
 
 		// Just print hashes of local file ------------------------------------
 		if Options.RemoteHost == "" {
 
-			StartHashWorkers(Options.Workers, jobs, results, Options.HashAlgorithm)
-			StartPrinter(results)
+			// Start hashing
+			fh.Start()
 
 			// Print header
 			fmt.Printf("{\n")
-			fmt.Printf("  \"file\": \"%s\",\n", Options.SourceFile)
-			fmt.Printf("  \"block_size\": %d,\n", Options.BlockSize)
-			fmt.Printf("  \"hash_type\": \"%s\",\n", Options.HashAlgorithm)
+			fmt.Printf("  \"file\": \"%s\",\n", fh.FilePath)
+			fmt.Printf("  \"block_size\": %d,\n", fh.BlockSize)
+			fmt.Printf("  \"hash_type\": \"%s\",\n", fh.HashType)
 			fmt.Printf("  \"blocks\": [\n")
 
-			lastblock, lastread, err := read_file(source_file, Options.BlockSize, jobs)
-			if u.Iserror(err, "Block number", strconv.Itoa(lastblock)) {
-				return err
+			var last_read, last_block int
+			//for result := range fh.Hashes {
+			for {
+				result, err := fh.NextHash()
+				if err == io.EOF {
+					break
+				}
+
+				if result.Index != 0 {
+					fmt.Printf(",\n")
+				}
+				fmt.Printf("    { \"block\": %d, \"hash\": \"%x\" }", result.Index, result.Hash)
+				last_block = result.Index
+				last_read = result.Size
 			}
 
 			// Close jobs channel, wait for printer, then print footer
-			close(jobs)
-			WaitForPrinter()
 			fmt.Printf("\n  ],\n")
-			fmt.Printf("  \"last_block\": %d,\n", lastblock-1)
-			fmt.Printf("  \"last_block_size\": %d,\n", lastread)
-			fmt.Printf("  \"last_block_diff\": %d\n", Options.BlockSize-lastread)
+			fmt.Printf("  \"last_block\": %d,\n", last_block)
+			fmt.Printf("  \"last_block_size\": %d,\n", last_read)
+			fmt.Printf("  \"last_block_diff\": %d\n", Options.BlockSize-last_read)
 			fmt.Printf("}\n")
 
-		// --------------------------------------------------------------------
+			// --------------------------------------------------------------------
 		} else {
 
 			// Open connection to rpc
@@ -83,7 +81,6 @@ func App() error {
 				return err
 			}
 
-
 			var reply string
 			err = client.Call("Server.Ping", 0, &reply)
 			if u.Iserror(err) {
@@ -91,40 +88,11 @@ func App() error {
 			}
 			fmt.Println(reply)
 
-
 		}
-
 
 	} else {
 		ServerRPC()
 	}
 
 	return nil
-}
-
-
-func read_file(fh io.Reader, bs int, blocks chan<- Block) (int, int, error) {
-	// Iterate through blocks in file
-	var i, lastread int
-	for i = 0;; i++ {
-		buf := make([]byte, bs)
-
-		init_time := time.Now()
-
-		read_size, err := fh.Read(buf)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return i, 0, err
-		}
-		lastread = read_size
-
-		blocks <- Block{i, buf[:read_size], []byte{}}
-
-		if Verbose {
-			u.Stderrln("Block", i, "read in", time.Now().Sub(init_time))
-		}
-	}
-
-	return i, lastread, nil
 }

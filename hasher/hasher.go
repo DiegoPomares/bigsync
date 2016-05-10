@@ -1,39 +1,41 @@
 package hasher
 
 import (
+	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"crypto/md5"
-	"fmt"
-	"sync"
+	//"fmt"
 	"os"
-	//"io"
-	"math"
+	"sync"
+	"io"
 	"errors"
+	"math"
 	//u "github.com/DiegoPomares/bigsync/utils"
 )
 
-const(
+const (
 	READ_BUFFER = 4
 )
 
 type Block struct {
 	Index int
 	Data  []byte
-	Size int
+	Size  int
 	Hash  []byte
 }
-
 
 func New(file_path string, mode string, bs int, hash_type string, workers int) (*hasher, error) {
 	var err error
 
 	var file_flags int
 	switch mode {
-		case "r": file_flags = os.O_RDONLY
-		case "rw": file_flags = os.O_RDWR  //TODO check if O_CREATE is needed
-		default: return nil, os.ErrInvalid
+	case "r":
+		file_flags = os.O_RDONLY
+	case "rw":
+		file_flags = os.O_RDWR //TODO check if O_CREATE is needed
+	default:
+		return nil, os.ErrInvalid
 	}
 
 	h := new(hasher)
@@ -51,11 +53,16 @@ func New(file_path string, mode string, bs int, hash_type string, workers int) (
 	}
 
 	switch hash_type {
-		case "SHA1": h.hash_func = w_sha1
-		case "SHA256": h.hash_func = w_sha256
-		case "SHA512": h.hash_func = w_sha512
-		case "MD5": h.hash_func = w_md5
-		default: return nil, errors.New("invalid hash type")
+	case "SHA1":
+		h.hash_func = w_sha1
+	case "SHA256":
+		h.hash_func = w_sha256
+	case "SHA512":
+		h.hash_func = w_sha512
+	case "MD5":
+		h.hash_func = w_md5
+	default:
+		return nil, errors.New("invalid hash type")
 	}
 
 	// Initialize
@@ -64,31 +71,34 @@ func New(file_path string, mode string, bs int, hash_type string, workers int) (
 	h.HashType = hash_type
 	h.Workers = workers
 	h.FileSize = h.FileInfo.Size()
-	h.NumBlocks = int(math.Ceil(float64(h.FileSize)/float64(bs)))
-	h.store = make(map[int]Block)
+	h.NumBlocks = int(math.Ceil(float64(h.FileSize) / float64(bs)))
 	h.blocks = make(chan Block, READ_BUFFER)
 	h.Hashes = make(chan Block, workers)
+
+	h.current = 0
+	h.store = make(map[int]Block)
 
 	return h, nil
 }
 
 type hasher struct {
-	FileInfo os.FileInfo
-	FilePath string
+	FileInfo  os.FileInfo
+	FilePath  string
 	BlockSize int
-	Workers int
-	HashType string
-	FileSize int64
+	Workers   int
+	HashType  string
+	FileSize  int64
 	NumBlocks int
 
-	fh *os.File
+	fh        *os.File
 	hash_func func([]byte) []byte
-	store map[int]Block
-	blocks chan Block
-	Hashes chan Block
+	blocks    chan Block
+	Hashes    chan Block
+
+	current   int
+	store     map[int]Block
 
 	wg_workers sync.WaitGroup
-
 }
 
 func (self *hasher) Start() {
@@ -97,7 +107,7 @@ func (self *hasher) Start() {
 
 	// Read the blocks in the file
 	go func() {
-		for i := 0;; i++ {
+		for i := 0; ; i++ {
 			buf := make([]byte, self.BlockSize)
 
 			read_size, err := self.fh.Read(buf)
@@ -111,6 +121,30 @@ func (self *hasher) Start() {
 		close(self.blocks)
 	}()
 
+}
+
+func (self *hasher) NextHash() (*Block, error) {
+
+	// Check store first
+	result, ok := self.store[self.current]
+	if ok {
+		delete(self.store, self.current)
+		self.current++
+		return &result, nil
+	}
+
+	// Pull from Hashes queue until found, else put in store
+	for result := range self.Hashes {
+
+		if result.Index == self.current {
+			self.current++
+			return &result, nil
+		} else {
+			self.store[result.Index] = result
+		}
+	}
+
+	return nil, io.EOF
 }
 
 func (self *hasher) start_workers(n int) {
@@ -141,37 +175,6 @@ func (self *hasher) hash_worker() {
 	}
 }
 
-
-/*
-func print_worker(results <-chan Block) {
-	i := 0
-	store := make(map[int]Block)
-
-	for result := range results {
-
-		if result.index == i {
-			print_result(result)
-			i++
-
-			for ; len(store) > 0; i++ {
-				seg, ok := store[i]
-				if !ok {
-					break
-				}
-
-				print_result(seg)
-				delete(store, i)
-			}
-
-		} else {
-			store[result.index] = result
-		}
-	}
-}
-
-
-}
-*/
 
 // Wrappers -------------------------------------------------------------------
 func w_sha1(data []byte) []byte {

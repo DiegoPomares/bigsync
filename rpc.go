@@ -28,14 +28,12 @@ func (self *RWBridge) Close() error {
 	return self.reader.Close()
 }
 
-
 type Server int
 
 func (self *Server) Ping(dummy int, reply *string) error {
 	*reply = "Pong"
 	return nil
 }
-
 
 func ServerRPC() {
 	conn := &RWBridge{os.Stdin, os.Stdout}
