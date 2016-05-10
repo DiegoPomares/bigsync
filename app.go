@@ -4,14 +4,17 @@ import (
 	"fmt"
 	"os"
 	//"time"
-	"io"
+	//"io"
 	//"strconv"
+	"strings"
 	"github.com/DiegoPomares/bigsync/hasher"
 	u "github.com/DiegoPomares/bigsync/utils"
 )
 
-var sigINT = false
+//const REMOTE_COMMAND = "bigsync --server-mode-enable dummy"
+const REMOTE_COMMAND = "go run /home/local/ANT/dieamare/dev/go/src/github.com/DiegoPomares/bigsync/*.go --server-mode-enable dummy"
 
+var sigINT = false
 func AppSignal(sig os.Signal) {
 	if !sigINT && sig == os.Interrupt {
 		u.Stderrln("[ Interrupt received, cleaning up ... ]")
@@ -22,7 +25,7 @@ func AppSignal(sig os.Signal) {
 
 func App() error {
 
-	if Options.ServerMode == "" {
+	if !Options.ServerMode {
 
 		//TODO open file here
 		fh, err := hasher.New(Options.SourceFile, "r", Options.BlockSize, Options.HashType, Options.Workers)
@@ -35,7 +38,7 @@ func App() error {
 		}
 
 		// Just print hashes of local file ------------------------------------
-		if Options.RemoteHost == "" {
+		if Options.DestFile == "" {
 
 			// Start hashing
 			fh.Start()
@@ -49,11 +52,7 @@ func App() error {
 
 			var last_read, last_block int
 			//for result := range fh.Hashes {
-			for {
-				result, err := fh.NextHash()
-				if err == io.EOF {
-					break
-				}
+			for result := range fh.HashRange() {
 
 				if result.Index != 0 {
 					fmt.Printf(",\n")
@@ -73,10 +72,29 @@ func App() error {
 			// --------------------------------------------------------------------
 		} else {
 
-			// Open connection to rpc
-			//"/home/local/ANT/dieamare/dev/go/src/github.com/DiegoPomares/bigsync"
-			//client, err := ClientRPC("bash", "-c", "go", "run", "*.go", "--server-mode-filename", "a", "dummy")
-			client, err := ClientRPC("bash", "-c", "go run *.go --server-mode-filename a dummy")
+			var command []string
+
+			// Custom shell mode
+			if Options.CustomSh != "" {
+				command = append(command, strings.Split(Options.CustomSh, " ")...)
+
+			// Local mode
+			} else if Options.RemoteHost == "" {
+				command = []string{"sh", "-c", REMOTE_COMMAND}
+
+			// SSH mode
+			} else {
+				command = []string{"ssh"}
+				if Options.ExtraSsh != "" {
+					command = append(command, strings.Split(Options.ExtraSsh, " ")...)
+				}
+				command = append(command, Options.RemoteHost, REMOTE_COMMAND)
+
+			}
+
+
+			// Open connection to RPC server
+			client, err := ClientRPC(command...)
 			if u.Iserror(err) {
 				return err
 			}

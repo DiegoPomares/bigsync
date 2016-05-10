@@ -20,19 +20,18 @@ var Verbose bool
 
 var Options struct {
 	SourceFile string
-	User       string
 	RemoteHost string
 	DestFile   string
 
-	ServerMode string
+	ServerMode bool
 
 	BlockSize     int
 	Workers       int
 	HashType      string
 	ForceCreation bool
 
-	Gzip     bool
 	ExtraSsh string
+	CustomSh string
 
 	Diff  bool
 	Equal bool
@@ -43,7 +42,7 @@ var DefaultWorkers = 16 * runtime.NumCPU()
 var DefaultHashType = "SHA256"
 
 var usage = fmt.Sprintf(`%s %s (%s)
-Usage: %s [options] source_file [ [[user@]remote_host] [dest_file] ]
+Usage: %s [options] source_file [ [[user@]remote_host] dest_file ]
 
 Common:
     -b, --block-size <bytes>        Read and write up to <bytes> at a time.
@@ -55,8 +54,9 @@ Common:
                                     doesn't exist already
 
 Transport:
-    -z, --gzip                      Use gzip compression
-    -e, --ssh <options>             Extra parameters for SSH
+    -s, --ssh <options>             Extra parameters for SSH
+    -c, --custom-shell              Custom shell to communicate.
+                                    Overrides SSH, and remote_host
     	
 No-sync operations:
     -d, --diff                      Print different blocks list and exit
@@ -95,10 +95,10 @@ func Process_opts() error {
 	flag.BoolVar(&Options.ForceCreation, "f", false, "Force creation")
 	flag.BoolVar(&Options.ForceCreation, "force-creation", false, "Force creation")
 
-	flag.BoolVar(&Options.Gzip, "z", false, "Gzip")
-	flag.BoolVar(&Options.Gzip, "gzip", false, "Gzip")
-	flag.StringVar(&Options.ExtraSsh, "e", "", "SSH extras")
+	flag.StringVar(&Options.ExtraSsh, "s", "", "SSH extras")
 	flag.StringVar(&Options.ExtraSsh, "ssh", "", "SSH extras")
+	flag.StringVar(&Options.CustomSh, "c", "", "CustomSh")
+	flag.StringVar(&Options.CustomSh, "custom-shell", "", "CustomSh")
 
 	flag.BoolVar(&Options.Diff, "d", false, "Diff")
 	flag.BoolVar(&Options.Diff, "diff", false, "Diff")
@@ -108,23 +108,21 @@ func Process_opts() error {
 	flag.BoolVar(&Verbose, "v", false, "Verbose")
 	flag.BoolVar(&Verbose, "verbose", false, "Verbose")
 
-	flag.StringVar(&Options.ServerMode, "server-mode-filename", "", "ServerMode")
+	flag.BoolVar(&Options.ServerMode, "server-mode-enable", false, "Server mode")
 
 	flag.Usage = print_usage
 	flag.Parse()
 
 	// Positional arguments
 	Options.SourceFile = arg_get(flag.Args(), 0)
-	Options.DestFile = arg_get(flag.Args(), 2)
 
-	topt := arg_get(flag.Args(), 1)
-	topts := strings.Split(topt, "@")
-	if len(topts) == 2 {
-		Options.User = topts[0]
-		Options.RemoteHost = topts[1]
+	Options.DestFile = arg_get(flag.Args(), 2)
+	if Options.DestFile == "" {
+		Options.DestFile = arg_get(flag.Args(), 1)	
 	} else {
-		Options.RemoteHost = topts[0]
+		Options.RemoteHost = arg_get(flag.Args(), 1)
 	}
+
 
 	// Check options
 	block_size := DefaultBlockSize

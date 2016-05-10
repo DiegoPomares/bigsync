@@ -43,8 +43,8 @@ func ServerRPC() {
 	return
 }
 
-func ClientRPC(command string, args ...string) (*rpc.Client, error) {
-	cmd := exec.Command(command, args...)
+func ClientRPC(args ...string) (*rpc.Client, error) {
+	cmd := exec.Command(args[0], args[1:]...)
 
 	rx, _ := cmd.StdoutPipe()
 	tx, _ := cmd.StdinPipe()

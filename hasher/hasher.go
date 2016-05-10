@@ -8,7 +8,7 @@ import (
 	//"fmt"
 	"os"
 	"sync"
-	"io"
+	//"io"
 	"errors"
 	"math"
 	//u "github.com/DiegoPomares/bigsync/utils"
@@ -75,9 +75,6 @@ func New(file_path string, mode string, bs int, hash_type string, workers int) (
 	h.blocks = make(chan Block, READ_BUFFER)
 	h.Hashes = make(chan Block, workers)
 
-	h.current = 0
-	h.store = make(map[int]Block)
-
 	return h, nil
 }
 
@@ -94,9 +91,6 @@ type hasher struct {
 	hash_func func([]byte) []byte
 	blocks    chan Block
 	Hashes    chan Block
-
-	current   int
-	store     map[int]Block
 
 	wg_workers sync.WaitGroup
 }
@@ -123,28 +117,38 @@ func (self *hasher) Start() {
 
 }
 
-func (self *hasher) NextHash() (*Block, error) {
+func (self *hasher) HashRange() chan Block {
+	ch := make(chan Block, READ_BUFFER)
+	
+	go func() {
+		current := 0
+		store := make(map[int]Block)
 
-	// Check store first
-	result, ok := self.store[self.current]
-	if ok {
-		delete(self.store, self.current)
-		self.current++
-		return &result, nil
-	}
+		for result := range self.Hashes {
 
-	// Pull from Hashes queue until found, else put in store
-	for result := range self.Hashes {
+			if result.Index == current {
+				ch <- result
+				current++
 
-		if result.Index == self.current {
-			self.current++
-			return &result, nil
-		} else {
-			self.store[result.Index] = result
+				for ; len(store) > 0; current++ {
+					block, ok := store[current]
+					if !ok {
+						break
+					}
+
+					ch <- block
+					delete(store, current)
+				}
+
+			} else {
+				store[result.Index] = result
+			}
 		}
-	}
 
-	return nil, io.EOF
+		close(ch)
+	}()
+
+	return ch
 }
 
 func (self *hasher) start_workers(n int) {
