@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/rpc"
 	"os"
-	//"os/exec"
+	"os/exec"
 	//"time"
 	//"strconv"
 )
@@ -15,15 +15,15 @@ type RWBridge struct {
 	writer io.WriteCloser
 }
 
-func (self *rwBridge) Read(b []byte) (int, error) {
+func (self *RWBridge) Read(b []byte) (int, error) {
 	return self.reader.Read(b)
 }
 
-func (self *rwBridge) Write(b []byte) (int, error) {
+func (self *RWBridge) Write(b []byte) (int, error) {
 	return self.writer.Write(b)
 }
 
-func (self *rwBridge) Close() error {
+func (self *RWBridge) Close() error {
 	self.writer.Close()
 	return self.reader.Close()
 }
@@ -31,32 +31,36 @@ func (self *rwBridge) Close() error {
 
 type Server int
 
-func (self *Server) Ping(n int, reply *string) error {
+func (self *Server) Ping(dummy int, reply *string) error {
 	*reply = "Pong"
 	return nil
 }
 
 
 func ServerRPC() {
-	conn := &rwBridge{os.Stdin, os.Stdout}
+	conn := &RWBridge{os.Stdin, os.Stdout}
 
-	rpc.Register(new(R))
+	rpc.Register(new(Server))
 	rpc.ServeConn(conn)
 	return
 }
 
-func ClientRPC() {
-	comm := exec.Command("go", "run", "rpc.go", "server")
-	rx, _ := comm.StdoutPipe()
-	tx, _ := comm.StdinPipe()
-	conn := &rwBridge{rx, tx}
+func ClientRPC(command string, args ...string) (*rpc.Client, error) {
+	cmd := exec.Command(command, args...)
+
+	rx, _ := cmd.StdoutPipe()
+	tx, _ := cmd.StdinPipe()
+	conn := &RWBridge{rx, tx}
+
+	cmd.Stderr = os.Stderr
 
 	client := rpc.NewClient(conn)
-	err := comm.Start()
+	err := cmd.Start()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
-		return
+		return nil, err
 	}
+
+	return client, nil
 }
 
 //client.Call("R.Ping", 11, &reply)

@@ -1,4 +1,4 @@
-package main
+package hasher
 
 import (
 	"crypto/sha1"
@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 	//"os"
-	//"time"
-	//u "github.com/DiegoPomares/bigsync/utils"
+	"time"
+	u "github.com/DiegoPomares/bigsync/utils"
 )
 
 var WgHashWorkers sync.WaitGroup
@@ -18,13 +18,9 @@ var WgPrinter sync.WaitGroup
 type Block struct {
 	index int
 	data  []byte
-	size  int
+	hash  []byte
 }
 
-type Hash struct {
-	index int
-	data  []byte
-}
 
 func wrap_sha1(data []byte) []byte {
 	b_hash := sha1.Sum(data)
@@ -57,20 +53,26 @@ func get_hash_func(hash_alg string) (func([]byte) []byte) {
 	return nil
 }
 
-func hash_worker(jobs <-chan Block, results chan<- Hash, hash_func (func([]byte) []byte)) {
+func hash_worker(jobs <-chan Block, results chan<- Block, hash_func (func([]byte) []byte)) {
 
 	for job := range jobs {
 
-		hash := hash_func(job.data[:job.size])
-		s_hash := hash[:]
+		init_time := time.Now()
 
-		results <- Hash{job.index, s_hash}
+		hash := hash_func(job.data)
+		job.hash = hash[:]
+
+		results <- job
+
+		if Verbose {
+			u.Stderrln("Block", job.index, "hashed in", time.Now().Sub(init_time))
+		}
 	}
 }
 
-func print_worker(results <-chan Hash) {
+func print_worker(results <-chan Block) {
 	i := 0
-	store := make(map[int]Hash)
+	store := make(map[int]Block)
 
 	for result := range results {
 
@@ -94,12 +96,12 @@ func print_worker(results <-chan Hash) {
 	}
 }
 
-func print_result(result Hash) {
+func print_result(result Block) {
 
 	if result.index != 0 {
 		fmt.Printf(",\n")
 	}
-	fmt.Printf("    { \"block\": %d, \"hash\": \"%x\" }", result.index, result.data)
+	fmt.Printf("    { \"block\": %d, \"hash\": \"%x\" }", result.index, result.hash)
 
 }
 
@@ -108,7 +110,7 @@ func WaitForPrinter() {
 }
 
 
-func StartHashWorkers(n int, jobs <-chan Block, results chan<- Hash, hash_alg string) {
+func StartHashWorkers(n int, jobs <-chan Block, results chan<- Block, hash_alg string) {
 	WgHashWorkers.Add(n)
 
 	for i := 0; i < n; i++ {
@@ -125,7 +127,7 @@ func StartHashWorkers(n int, jobs <-chan Block, results chan<- Hash, hash_alg st
 	}()
 }
 
-func StartPrinter(results <-chan Hash) {
+func StartPrinter(results <-chan Block) {
 	WgPrinter.Add(1)
 
 	go func () {

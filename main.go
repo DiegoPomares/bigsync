@@ -1,26 +1,25 @@
 package main
 
 import (
-	"fmt"
+	//"fmt"
 	"os"
 	"os/signal"
 	"runtime"
 	u "github.com/DiegoPomares/bigsync/utils"
 )
 
-var Signals = make(chan os.Signal)
-var SigINT = false
+const (
+	OK = 0
+	GEN_ERROR = 1
+	PARSE_ERROR = 2
+	IO_ERROR = 3
+	SIGINT = 130
+)
 
+var signals = make(chan os.Signal)
 func process_signals() {
-	for sig := range Signals {
-		
-		switch sig {
-		case os.Interrupt:
-			if !SigINT {
-				fmt.Fprintf(os.Stderr, "[ Interrupt received, cleaning up ... ]\n")
-			}
-			SigINT = true
-		}
+	for sig := range signals {
+		AppSignal(sig)
 	}
 }
 
@@ -34,19 +33,36 @@ func main() {
 
 	// Process command line arguments
 	err := Process_opts()
-	if u.Perror(err) {
-		os.Exit(1)
+	if u.Iserror(err) {
+		os.Exit(PARSE_ERROR)
 	}
 
-	if Options.Verbose {
-		fmt.Fprintf(os.Stderr, "%s %s\nOptions:\n%+v\n", NAME, VERSION, Options)
+	// Print Version and options if verbose
+	if Verbose {
+		u.Stderrf("%s %s\nOptions:\n%+v\n", NAME, VERSION, Options)
 	}
 
 	// Signal handlers
-	signal.Notify(Signals, os.Interrupt)  // SIGINT (Ctrl+C)
 	go process_signals()
+	signal.Notify(signals, os.Interrupt)  // SIGINT (Ctrl+C)
+	//signal.Notify(signals, syscall.SIGUSR1)  // Custom user signal 1
+	//signal.Notify(signals, syscall.SIGUSR2)  // Custom user signal 2
+	signal.Reset() //DEBUG
+
 
 	// Run app
-	os.Exit(App())
+	status := App()
 
+
+	// Exit status handling
+	if _, ok := status.(*os.PathError); ok {
+		os.Exit(IO_ERROR)
+	}
+
+	if status != nil {
+		os.Exit(GEN_ERROR)
+	}
+
+
+	os.Exit(OK)
 }
