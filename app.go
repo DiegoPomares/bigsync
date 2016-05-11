@@ -8,6 +8,7 @@ import (
 	//"strconv"
 	"strings"
 	"github.com/DiegoPomares/bigsync/hasher"
+	"github.com/DiegoPomares/bigsync/rpcbs"
 	u "github.com/DiegoPomares/bigsync/utils"
 )
 
@@ -84,7 +85,7 @@ func App() error {
 
 			// SSH mode
 			} else {
-				command = []string{"ssh"}
+				command = []string{"ssh", "-C"}
 				if Options.ExtraSsh != "" {
 					command = append(command, strings.Split(Options.ExtraSsh, " ")...)
 				}
@@ -94,22 +95,17 @@ func App() error {
 
 
 			// Open connection to RPC server
-			client, err := ClientRPC(command...)
+			client, err := rpcbs.Client(command...)
 			if u.Iserror(err) {
 				return err
 			}
 
-			var reply string
-			err = client.Call("Server.Ping", 0, &reply)
-			if u.Iserror(err) {
-				return err
-			}
-			fmt.Println(reply)
+			fmt.Println(client.Ping())
 
 		}
 
 	} else {
-		ServerRPC()
+		rpcbs.Serve()
 	}
 
 	return nil
