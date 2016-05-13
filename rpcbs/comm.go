@@ -22,3 +22,13 @@ func (self *RWBridge) Close() error {
 	self.writer.Close()
 	return self.reader.Close()
 }
+
+type Params struct {
+	DestFile string
+	FileSize int64
+	BlockSize int
+	Workers int
+	HashType string
+	ForceCreation bool
+	Mode string
+}

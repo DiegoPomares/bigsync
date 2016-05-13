@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"time"
+	//"github.com/DiegoPomares/bigsync/hasher"
 )
 
 
@@ -40,13 +41,16 @@ func (self *client) Ping() string {
 	return fmt.Sprintf("%s %v", reply, time.Now().Sub(init_time))
 }
 
-func (self *client) Ping2() (string, error) {
-	var reply string
 
-	err := self.rpc_client.Call("Server.Ping", 0, &reply)
-	if err != nil {
-		return "", err
-	}
+func (self *client) SetParams(dest_file string, file_size int64, block_size,
+	workers int, hash_type string, force_creation bool, mode string) error {
 
-	return reply, nil
+	data := Params{dest_file, file_size, block_size, workers, hash_type, force_creation, mode}
+
+	return self.rpc_client.Call("Server.SetParams", data, nil)
+}
+
+func (self *client) StartHashing() error {
+
+	return self.rpc_client.Call("Server.StartHashing", 0, nil)
 }

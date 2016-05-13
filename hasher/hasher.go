@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	READ_BUFFER = 4
+	RW_BUFFER = 4
 )
 
 type Block struct {
@@ -25,7 +25,7 @@ type Block struct {
 	Hash  []byte
 }
 
-func New(file_path string, mode string, bs int, hash_type string, workers int) (*hasher, error) {
+func New(file_path string, mode string, bs int, hash_type string, workers int) (*Hasher, error) {
 	var err error
 
 	var file_flags int
@@ -38,7 +38,7 @@ func New(file_path string, mode string, bs int, hash_type string, workers int) (
 		return nil, os.ErrInvalid
 	}
 
-	h := new(hasher)
+	h := new(Hasher)
 
 	// Open file
 	h.fh, err = os.OpenFile(file_path, file_flags, 0)
@@ -67,20 +67,23 @@ func New(file_path string, mode string, bs int, hash_type string, workers int) (
 
 	// Initialize
 	h.FilePath = file_path
+	h.Mode = mode
 	h.BlockSize = bs
 	h.HashType = hash_type
 	h.Workers = workers
 	h.FileSize = h.FileInfo.Size()
 	h.NumBlocks = int(math.Ceil(float64(h.FileSize) / float64(bs)))
-	h.blocks = make(chan Block, READ_BUFFER)
+	h.blocks = make(chan Block, RW_BUFFER)
+	h.write = make(chan Block, RW_BUFFER)
 	h.Hashes = make(chan Block, workers)
 
 	return h, nil
 }
 
-type hasher struct {
+type Hasher struct {
 	FileInfo  os.FileInfo
 	FilePath  string
+	Mode      string
 	BlockSize int
 	Workers   int
 	HashType  string
@@ -90,22 +93,23 @@ type hasher struct {
 	fh        *os.File
 	hash_func func([]byte) []byte
 	blocks    chan Block
+	write     chan Block
 	Hashes    chan Block
 
 	wg_workers sync.WaitGroup
 }
 
-func (self *hasher) Start() {
+func (self *Hasher) Start() {
 
 	self.start_workers(self.Workers)
 
-	// Read the blocks in the file
+	// Read the blocks from the file
 	go func() {
 		for i := 0; ; i++ {
 			buf := make([]byte, self.BlockSize)
 
 			read_size, err := self.fh.Read(buf)
-			if err != nil {
+			if err != nil {  // TODO: better error handling
 				break
 			}
 
@@ -115,21 +119,46 @@ func (self *hasher) Start() {
 		close(self.blocks)
 	}()
 
+	// Write the blocks in the file
+	go func() {
+		for job := range self.write {
+			_, err := self.fh.WriteAt(job.Data, int64(job.Index*self.BlockSize))
+			if err != nil {  // TODO: better error handling
+				break
+			}
+		}
+
+		self.fh.Close()
+	}()
+
 }
 
-func (self *hasher) HashRange() chan Block {
-	ch := make(chan Block, READ_BUFFER)
+func (self *Hasher) Close() {
+	close(self.write)
+}
+
+func (self *Hasher) Write(block Block) {
+	if self.Mode == "rw" {
+		self.write <- block
+	}
+}
+
+func (self *Hasher) HashRange() chan Block {
+	ch := make(chan Block, RW_BUFFER)
 	
+	// Queue hashed blocks in ascending order into ch
 	go func() {
 		current := 0
 		store := make(map[int]Block)
 
 		for result := range self.Hashes {
 
+			// If result is the next block queue it into ch
 			if result.Index == current {
 				ch <- result
 				current++
 
+				// After, look for next block in the store
 				for ; len(store) > 0; current++ {
 					block, ok := store[current]
 					if !ok {
@@ -140,6 +169,7 @@ func (self *hasher) HashRange() chan Block {
 					delete(store, current)
 				}
 
+			// If result is not the next block, put it in the store
 			} else {
 				store[result.Index] = result
 			}
@@ -148,10 +178,11 @@ func (self *hasher) HashRange() chan Block {
 		close(ch)
 	}()
 
+	// Return channel (use for/range)
 	return ch
 }
 
-func (self *hasher) start_workers(n int) {
+func (self *Hasher) start_workers(n int) {
 	self.wg_workers.Add(n)
 
 	// Spawn workers
@@ -169,7 +200,7 @@ func (self *hasher) start_workers(n int) {
 	}()
 }
 
-func (self *hasher) hash_worker() {
+func (self *Hasher) hash_worker() {
 	for job := range self.blocks {
 
 		hash := self.hash_func(job.Data)

@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 
@@ -24,4 +25,8 @@ func Iserror(err error, args ...interface{}) bool {
 	}
 
 	return false
+}
+
+func Sleep(seconds int) {
+	time.Sleep(time.Duration(seconds) * time.Second)
 }

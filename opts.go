@@ -142,7 +142,7 @@ func Process_opts() error {
 	// Merge default opts
 	Options.BlockSize = block_size
 	if Options.Workers == 0 {
-		Options.Workers = runtime.NumCPU() * DefaultWorkers
+		Options.Workers = DefaultWorkers
 	}
 	if Options.HashType == "" {
 		Options.HashType = DefaultHashType

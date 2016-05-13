@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	//"time"
 	//"io"
 	//"strconv"
 	"strings"
@@ -28,51 +27,22 @@ func App() error {
 
 	if !Options.ServerMode {
 
-		//TODO open file here
+		// Open file
 		fh, err := hasher.New(Options.SourceFile, "r", Options.BlockSize, Options.HashType, Options.Workers)
 		if u.Iserror(err) {
 			return err
 		}
 
-		if Verbose {
-			u.Stderrln("File size", fh.FileSize, "| Blocks", fh.NumBlocks)
-		}
+		// Start hashing
+		fh.Start()
+		defer fh.Close()
 
-		// Just print hashes of local file ------------------------------------
+		// Just print hashes of local file
 		if Options.DestFile == "" {
+			PrintHashes(fh)
 
-			// Start hashing
-			fh.Start()
-
-			// Print header
-			fmt.Printf("{\n")
-			fmt.Printf("  \"file\": \"%s\",\n", fh.FilePath)
-			fmt.Printf("  \"block_size\": %d,\n", fh.BlockSize)
-			fmt.Printf("  \"hash_type\": \"%s\",\n", fh.HashType)
-			fmt.Printf("  \"blocks\": [\n")
-
-			var last_read, last_block int
-			//for result := range fh.Hashes {
-			for result := range fh.HashRange() {
-
-				if result.Index != 0 {
-					fmt.Printf(",\n")
-				}
-				fmt.Printf("    { \"block\": %d, \"hash\": \"%x\" }", result.Index, result.Hash)
-				last_block = result.Index
-				last_read = result.Size
-			}
-
-			// Close jobs channel, wait for printer, then print footer
-			fmt.Printf("\n  ],\n")
-			fmt.Printf("  \"last_block\": %d,\n", last_block)
-			fmt.Printf("  \"last_block_size\": %d,\n", last_read)
-			fmt.Printf("  \"last_block_diff\": %d\n", Options.BlockSize-last_read)
-			fmt.Printf("}\n")
-
-			// --------------------------------------------------------------------
+		// Client mode
 		} else {
-
 			var command []string
 
 			// Custom shell mode
@@ -95,18 +65,62 @@ func App() error {
 
 
 			// Open connection to RPC server
-			client, err := rpcbs.Client(command...)
+			server, err := rpcbs.Client(command...)
 			if u.Iserror(err) {
 				return err
 			}
 
-			fmt.Println(client.Ping())
+			// Send parameters to server
+			mode := "sync"
+			if Options.Diff {
+				mode = "diff"
+			} else if Options.Equal {
+				mode = "equal"
+			}
+			server.SetParams(Options.DestFile, fh.FileSize, Options.BlockSize, 
+				Options.Workers, Options.HashType, Options.ForceCreation, mode)
+
+			// Start hashing
+			server.StartHashing()
+
+			// Send Hashes
+			//server.SendHashes()
 
 		}
 
+	// Server mode
 	} else {
 		rpcbs.Serve()
 	}
 
 	return nil
+}
+
+
+func PrintHashes(fh *hasher.Hasher) {
+	// Print header
+	fmt.Printf("{\n")
+	fmt.Printf("  \"file\": \"%s\",\n", fh.FilePath)
+	fmt.Printf("  \"block_size\": %d,\n", fh.BlockSize)
+	fmt.Printf("  \"hash_type\": \"%s\",\n", fh.HashType)
+	fmt.Printf("  \"blocks\": [\n")
+
+	var last_read, last_block int
+	//for result := range fh.Hashes {
+	for result := range fh.HashRange() {
+
+		if result.Index != 0 {
+			fmt.Printf(",\n")
+		}
+		fmt.Printf("    { \"block\": %d, \"hash\": \"%x\" }", result.Index, result.Hash)
+		last_block = result.Index
+		last_read = result.Size
+	}
+
+	// Close jobs channel, wait for printer, then print footer
+	fmt.Printf("\n  ],\n")
+	fmt.Printf("  \"last_block\": %d,\n", last_block)
+	fmt.Printf("  \"last_block_size\": %d,\n", last_read)
+	fmt.Printf("  \"last_block_diff\": %d\n", Options.BlockSize-last_read)
+	fmt.Printf("}\n")
 }
